@@ -1,0 +1,21 @@
+EDUSCAN WINDOWS TEACHER PILOT 0.4.0
+====================================
+
+No Python installation is required.
+
+1. Run EduScan-Teacher-Setup-0.4.0.exe.
+2. Follow the graphical installation wizard.
+3. Launch EduScan from the desktop or Start menu.
+4. On first run, create the IT administrator in the graphical setup page.
+5. EduScan runs in the Windows notification area (system tray).
+6. Right-click the tray icon to open EduScan, create a backup, or exit safely.
+
+Data is stored for the signed-in Windows user under:
+%LOCALAPPDATA%\EduScan
+
+That folder contains the database, uploads, security configuration, and backups.
+Copy backups to another protected drive regularly.
+
+Windows SmartScreen may show an Unknown publisher warning because this pilot is not code-signed. Verify the SHA-256 value supplied by the developer before choosing Run anyway.
+
+This is a supervised single-machine pilot, not the final shared PostgreSQL deployment.

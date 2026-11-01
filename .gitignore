@@ -1,0 +1,50 @@
+# Dependencies and Python caches
+node_modules/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Generated builds, installers, test artifacts, and local runtime files
+/build/
+/release/
+/dist/
+*.egg-info/
+*.log
+*.pid
+.eduscan-runtime.json
+
+# Local databases, student photos, and backups
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite-*
+uploads/
+backups/
+
+# Local settings and secrets; retain sanitized setup examples
+.env
+.env.*
+!.env.example
+!.env.compose.example
+*.pem
+*.key
+*.p12
+*.pfx
+desktop-config.json
+
+# Local editor/agent configuration and unrelated reference material
+/.vscode/
+/.agents/
+/.codex/
+/.aws/
+*.code-workspace
+/Capstone.pdf
+.DS_Store
+Thumbs.db

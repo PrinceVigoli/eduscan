@@ -1,0 +1,8 @@
+{
+  "venvPath": ".",
+  "venv": ".venv",
+  "extraPaths": ["."],
+  "include": ["app", "tests"],
+  "exclude": [".venv"],
+  "typeCheckingMode": "basic"
+}

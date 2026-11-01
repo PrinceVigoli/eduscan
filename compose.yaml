@@ -1,0 +1,48 @@
+services:
+  database:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: eduscan
+      POSTGRES_USER: eduscan
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+    volumes:
+      - eduscan_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U eduscan"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      EDUSCAN_DATABASE_URL: postgresql+psycopg://eduscan:${POSTGRES_PASSWORD}@database:5432/eduscan
+      EDUSCAN_ALLOWED_ORIGINS: ${EDUSCAN_ORIGIN:-http://localhost}
+      EDUSCAN_SECURE_COOKIES: ${EDUSCAN_SECURE_COOKIES:-false}
+      EDUSCAN_OFFLINE_SIGNING_KEY: ${EDUSCAN_OFFLINE_SIGNING_KEY:?Set EDUSCAN_OFFLINE_SIGNING_KEY}
+      EDUSCAN_OFFLINE_PRIVATE_KEY_DER: ${EDUSCAN_OFFLINE_PRIVATE_KEY_DER:?Set EDUSCAN_OFFLINE_PRIVATE_KEY_DER}
+      EDUSCAN_UPLOAD_DIR: /app/uploads
+      EDUSCAN_AUTO_CREATE_SCHEMA: "false"
+    volumes:
+      - eduscan_uploads:/app/uploads
+      - eduscan_backups:/app/backups
+    depends_on:
+      database:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+
+volumes:
+  eduscan_postgres:
+  eduscan_uploads:
+  eduscan_backups:

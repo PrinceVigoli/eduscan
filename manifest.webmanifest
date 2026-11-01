@@ -1,0 +1,10 @@
+{
+  "name":"EduScan Attendance System",
+  "short_name":"EduScan",
+  "start_url":"./",
+  "display":"standalone",
+  "background_color":"#f5f8f6",
+  "theme_color":"#123c36",
+  "description":"Secure, QR-based student attendance for Luna National High School.",
+  "icons":[{"src":"icons/icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]
+}

@@ -1,0 +1,11 @@
+fastapi==0.116.1
+uvicorn[standard]==0.35.0
+sqlalchemy==2.0.43
+psycopg[binary]==3.2.13
+pydantic-settings==2.10.1
+python-multipart==0.0.20
+alembic==1.16.5
+qrcode==8.2
+pwdlib[argon2]==0.3.0
+Pillow==12.3.0
+cryptography==50.0.0

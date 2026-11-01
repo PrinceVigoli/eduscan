@@ -1,0 +1,9 @@
+{
+  "name": "eduscan-pwa",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Offline-first EduScan teacher PWA",
+  "dependencies": {
+    "@zxing/browser": "0.2.1"
+  }
+}

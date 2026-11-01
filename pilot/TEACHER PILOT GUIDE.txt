@@ -1,0 +1,31 @@
+EDUSCAN TEACHER PILOT - WINDOWS
+================================
+
+FIRST SETUP (IT or project developer)
+1. Extract the complete EduScan ZIP to a normal folder such as C:\EduScan-Teacher-Pilot.
+2. Make sure Python 3.12 or newer is installed with "Add Python to PATH" enabled.
+3. Connect to the internet.
+4. Double-click SETUP EDUSCAN.cmd.
+5. Create the initial IT administrator when prompted.
+6. Double-click START EDUSCAN.cmd.
+7. IT signs in, creates the school year, teacher account, classes, and students.
+8. Sign out, then let the teacher sign in with the account supplied by IT.
+
+DAILY USE
+- Double-click START EDUSCAN.cmd. EduScan opens at http://localhost:8080.
+- Keep the EduScan folder on the computer. Do not rename or move it while running.
+- Double-click STOP EDUSCAN.cmd before shutting down or moving the folder.
+- Use BACKUP EDUSCAN.cmd regularly and copy the ZIP somewhere safe.
+
+QR SCANNING
+- Start attendance only within the assigned class schedule.
+- Use Camera for a physical QR card.
+- Use Scan QR image to test a downloaded QR file.
+- Student photographs are optional.
+
+IMPORTANT PILOT LIMITS
+- This package stores its records on this computer only.
+- Do not run two copies from different folders.
+- Do not delete backend\eduscan.db, backend\uploads, or backend\.env.
+- Initial setup needs internet to install components; normal local use can continue offline.
+- Report problems to IT or the EduScan developer. Do not attempt to edit database files.

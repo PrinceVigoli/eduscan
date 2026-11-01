@@ -1,0 +1,1 @@
+"""EduScan synchronization API."""

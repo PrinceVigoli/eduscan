@@ -1,0 +1,18 @@
+EduScan Teacher Pilot 0.2.0
+===========================
+
+Purpose: supervised single-machine teacher pilot on Windows.
+
+Included:
+- Offline-capable PWA and QR camera/image scanner
+- Local FastAPI service and SQLite database
+- Teacher, IT administrator, and principal roles
+- Class distribution and automatic roster updates
+- Optional student photographs
+- QR issue, revoke, replace, and eight-card A4 printing
+- Attendance schedules, synchronization queue, reports, audit history
+- School-year closing and controlled student promotion
+- Guided setup, start, stop, and backup commands
+
+This is a pilot release, not the final multi-machine school deployment.
+Version: 0.2.0
