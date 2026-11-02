@@ -48,3 +48,6 @@ desktop-config.json
 /Capstone.pdf
 .DS_Store
 Thumbs.db
+
+# Temporary design drafts and local design references
+/.superdesign/

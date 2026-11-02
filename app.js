@@ -3,16 +3,95 @@ const classes=[];
 const activities=[];
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const browserFetch=window.fetch.bind(window);window.fetch=(input,options={})=>browserFetch(input,{credentials:'include',...options});
-function toast(message){const t=$('#toast');t.textContent=message;t.classList.add('show');clearTimeout(toast.timer);toast.timer=setTimeout(()=>t.classList.remove('show'),2600)}
-function showView(id){$$('.view').forEach(v=>v.classList.toggle('active',v.id===id));$$('.nav-item').forEach(n=>n.classList.toggle('active',n.dataset.view===id));$('#crumbTitle').textContent=id[0].toUpperCase()+id.slice(1);$('#sidebar').classList.remove('open');scrollTo(0,0)}
-$$('[data-view]').forEach(b=>b.onclick=()=>showView(b.dataset.view));$$('[data-view-target]').forEach(b=>b.onclick=()=>showView(b.dataset.viewTarget));
-$('#menuButton').onclick=()=>$('#sidebar').classList.toggle('open');
-$('#attendanceChart').innerHTML='<div class="empty-state">No attendance data yet</div>';
-$('#activityList').innerHTML='<div class="empty-state">No attendance activity yet</div>';
-function renderStudents(list=students){$('#studentTable').innerHTML=list.length?list.map(s=>`<tr><td><strong>${escapePrintText(s.name)}</strong><small>${s.isActive?'Student':`Inactive · ${escapePrintText(s.inactiveReason||'school decision')}`}</small></td><td>${escapePrintText(s.lrn)}</td><td>${escapePrintText(s.section)}</td><td><span class="status ${s.qr==='Active'?'present':''}">${escapePrintText(s.qr||'No active QR')}</span></td><td><span class="status">${escapePrintText(s.today||'—')}</span></td><td><button class="text-button student-view" data-student-id="${s.id}">View →</button></td></tr>`).join(''):'<tr><td colspan="6"><div class="empty-state">No students yet. Add a student or import the CSV template.</div></td></tr>'}
+function toast(message){const t=$('#toast');t.textContent=message;if(t.showPopover&&!t.matches(':popover-open'))t.showPopover();t.classList.add('show');clearTimeout(toast.timer);toast.timer=setTimeout(()=>{t.classList.remove('show');if(t.hidePopover&&t.matches(':popover-open'))t.hidePopover()},4500)}
+function uiIcon(name){return `<svg class="ui-icon" aria-hidden="true"><use href="#icon-${name}"></use></svg>`}
+function emptyState(icon,title,description){return `<div class="empty-state"><span class="empty-icon">${uiIcon(icon)}</span><strong>${escapePrintText(title)}</strong><small>${escapePrintText(description)}</small></div>`}
+// Each action owns its lock, so duplicate submits cannot send another request.
+const busyActions=new WeakSet();
+function beginAction(button,label,scope=button.closest('form')||button){
+  if(busyActions.has(scope))return null;
+  busyActions.add(scope);const original=button.innerHTML,disabled=button.disabled;
+  scope.setAttribute('aria-busy','true');button.disabled=true;button.classList.add('is-loading');button.textContent=label;
+  return()=>{busyActions.delete(scope);scope.removeAttribute('aria-busy');button.disabled=disabled;button.classList.remove('is-loading');button.innerHTML=original};
+}
+let sidebarCollapsed=false;
+try{sidebarCollapsed=localStorage.getItem('eduscan.sidebarCollapsed')==='true'}catch{}
+const navTooltip=document.createElement('div');navTooltip.id='navTooltip';navTooltip.className='nav-tooltip';navTooltip.setAttribute('role','tooltip');navTooltip.hidden=true;document.body.append(navTooltip);
+function updateSidebarLayout(){
+  navTooltip.hidden=true;
+  const compact=sidebarCollapsed&&!matchMedia('(max-width: 980px)').matches;
+  document.body.classList.toggle('sidebar-collapsed',compact);
+  $('#sidebarToggle').setAttribute('aria-expanded',String(!compact));
+  $('#sidebarToggle').setAttribute('aria-label',compact?'Expand sidebar':'Collapse sidebar');
+  $('#sidebarToggle').title=compact?'Expand sidebar':'Collapse sidebar';
+}
+$$('.nav-item').forEach(item=>{const label=item.textContent.trim();item.setAttribute('aria-label',label);item.dataset.tooltip=label});
+$('#roleButton').setAttribute('aria-label','Account settings');$('#roleButton').dataset.tooltip='Account settings';
+$$('#sidebar [data-tooltip]').forEach(item=>{
+  const show=()=>{if(!document.body.classList.contains('sidebar-collapsed'))return;const rect=item.getBoundingClientRect();navTooltip.textContent=item.dataset.tooltip;navTooltip.style.left=`${rect.right+12}px`;navTooltip.style.top=`${Math.max(8,Math.min(innerHeight-44,rect.top+5))}px`;navTooltip.hidden=false;item.setAttribute('aria-describedby','navTooltip')};
+  const hide=()=>{navTooltip.hidden=true;item.removeAttribute('aria-describedby')};
+  item.addEventListener('mouseenter',show);item.addEventListener('focus',show);item.addEventListener('mouseleave',hide);item.addEventListener('blur',hide);item.addEventListener('click',hide);
+});
+addEventListener('keydown',event=>{if(event.key==='Escape')navTooltip.hidden=true});
+addEventListener('resize',()=>{navTooltip.hidden=true});$('#sidebar').addEventListener('scroll',()=>{navTooltip.hidden=true});
+$('#sidebarToggle').onclick=()=>{sidebarCollapsed=!sidebarCollapsed;try{localStorage.setItem('eduscan.sidebarCollapsed',String(sidebarCollapsed))}catch{}updateSidebarLayout()};
+updateSidebarLayout();
+function setSidebarOpen(open,restoreFocus=false){
+  const mobile=matchMedia('(max-width: 980px)').matches,visible=mobile&&open;
+  $('#sidebar').classList.toggle('open',visible);document.body.classList.toggle('nav-open',visible);
+  $('#menuButton').setAttribute('aria-expanded',String(visible));$('#sidebarBackdrop').hidden=!visible;
+  $('#sidebar').inert=mobile&&!visible;$('#mainContent').inert=visible;
+  if(visible)$('#sidebarClose').focus();else if(restoreFocus&&mobile)$('#menuButton').focus();
+}
+function showView(id){
+  const view=document.getElementById(id);if(!view?.classList.contains('view'))return;
+  const wasDrawerOpen=$('#sidebar').classList.contains('open'),navId=['teacherHome','principalHome'].includes(id)?'overview':id;
+  $$('.view').forEach(item=>item.classList.toggle('active',item===view));
+  $$('.nav-item').forEach(item=>{const active=item.dataset.view===navId;item.classList.toggle('active',active);if(active)item.setAttribute('aria-current','page');else item.removeAttribute('aria-current')});
+  const titles={overview:'Overview',teacherHome:'My day',principalHome:'Consolidation',scanner:'Attendance',students:'Students',classes:'Classes',reports:'Reports',qr:'QR cards'};
+  $('#crumbTitle').textContent=titles[id]||id;setSidebarOpen(false);scrollTo(0,0);
+  if(wasDrawerOpen){const heading=view.querySelector('h1');if(heading){heading.tabIndex=-1;heading.focus({preventScroll:true})}}
+}
+$$('[data-view]').forEach(button=>button.onclick=()=>showView(button.dataset.view));
+$$('[data-view-target]').forEach(button=>button.onclick=()=>showView(button.dataset.viewTarget));
+$('#menuButton').onclick=()=>setSidebarOpen(!$('#sidebar').classList.contains('open'));
+$('#sidebarClose').onclick=()=>setSidebarOpen(false,true);$('#sidebarBackdrop').onclick=()=>setSidebarOpen(false,true);
+matchMedia('(max-width: 980px)').addEventListener('change',()=>{setSidebarOpen(false);updateSidebarLayout()});setSidebarOpen(false);
+document.addEventListener('keydown',event=>{
+  if(!$('#sidebar').classList.contains('open'))return;
+  if(event.key==='Escape'){event.preventDefault();setSidebarOpen(false,true)}
+  if(event.key==='Tab'){
+    const items=[...$('#sidebar').querySelectorAll('a,button')].filter(item=>!item.hidden&&item.offsetParent!==null&&!item.disabled),first=items[0],last=items.at(-1);
+    if(event.shiftKey&&document.activeElement===first){event.preventDefault();last?.focus()}
+    else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus()}
+  }
+});
+$('.brand').onclick=event=>{event.preventDefault();showView(roleConfig[currentRole].home)};
+$('#attendanceChart').innerHTML=emptyState('report','Attendance starts with your first session','Recorded attendance will appear after teachers synchronize their sessions.');
+$('#activityList').innerHTML=emptyState('clock','No activity yet','Your latest school updates will appear here.');
+const studentListState={page:1,pageSize:10,sort:'name',direction:1};
+const studentCollator=new Intl.Collator('en-PH',{numeric:true,sensitivity:'base'});
+function renderStudents(){
+  const q=$('#studentSearch').value.trim().toLowerCase(),section=$('#sectionFilter').value,status=$('#studentStatusFilter').value;
+  const list=students.filter(student=>(student.name.toLowerCase().includes(q)||student.lrn.includes(q))&&(section==='All sections'||student.section===section)&&(status==='all'||(status==='active'?student.isActive:!student.isActive)));
+  list.sort((a,b)=>studentListState.direction*studentCollator.compare(String(a[studentListState.sort]||''),String(b[studentListState.sort]||''))||studentCollator.compare(a.id,b.id));
+  const pages=Math.max(1,Math.ceil(list.length/studentListState.pageSize));studentListState.page=Math.min(studentListState.page,pages);
+  const offset=(studentListState.page-1)*studentListState.pageSize,visible=list.slice(offset,offset+studentListState.pageSize);
+  $('#studentTable').innerHTML=visible.length?visible.map(student=>`<tr><td><div class="student-identity"><span class="avatar" aria-hidden="true">${escapePrintText(student.initials)}</span><div><strong>${escapePrintText(student.name)}</strong><small>${student.isActive?'Learner record':escapePrintText((student.inactiveReason||'Inactive enrollment').replaceAll('_',' '))}</small></div></div></td><td class="lrn-text">${escapePrintText(student.lrn)}</td><td>${escapePrintText(student.section)}</td><td><span class="status ${student.isActive?'present':'inactive'}">${student.isActive?'Active':'Inactive'}</span></td><td><span class="status ${student.qr==='Active'?'present':''}">${escapePrintText(student.qr||'No active QR')}</span></td><td><button class="text-button student-view" data-student-id="${escapePrintText(student.id)}" aria-label="View ${escapePrintText(student.name)}">View ${uiIcon('chevron')}</button></td></tr>`).join(''):`<tr><td colspan="6">${emptyState('users',students.length?'No matching students':'Your student records start here',students.length?'Try another search or reset your filters.':'Add a student or import the CSV template to get started.')}</td></tr>`;
+  $('#studentResults').textContent=list.length?`Showing ${offset+1}–${Math.min(offset+studentListState.pageSize,list.length)} of ${list.length} student${list.length===1?'':'s'}`:'0 students';
+  $('#studentPageLabel').textContent=`${studentListState.page} / ${pages}`;
+  $('#studentPrevPage').disabled=studentListState.page===1;$('#studentNextPage').disabled=studentListState.page===pages;
+  $$('[data-student-sort]').forEach(button=>{const active=button.dataset.studentSort===studentListState.sort;button.closest('th').setAttribute('aria-sort',active?(studentListState.direction===1?'ascending':'descending'):'none');button.querySelector('span').textContent=active?(studentListState.direction===1?'↑':'↓'):'↕'});
+  if($('#workspaceSummary').dataset.ready)refreshWorkspaceHeader();
+}
+function filterStudents(){studentListState.page=1;renderStudents()}
+$('#studentSearch').oninput=filterStudents;$('#sectionFilter').onchange=filterStudents;$('#studentStatusFilter').onchange=filterStudents;
+$('#resetStudentFilters').onclick=()=>{$('#studentSearch').value='';$('#sectionFilter').value='All sections';$('#studentStatusFilter').value='all';filterStudents()};
+$('#studentPageSize').onchange=event=>{studentListState.pageSize=Number(event.target.value);filterStudents()};
+$('#studentPrevPage').onclick=()=>{studentListState.page=Math.max(1,studentListState.page-1);renderStudents()};
+$('#studentNextPage').onclick=()=>{studentListState.page++;renderStudents()};
+$$('[data-student-sort]').forEach(button=>button.onclick=()=>{const key=button.dataset.studentSort;studentListState.direction=studentListState.sort===key?-studentListState.direction:1;studentListState.sort=key;filterStudents()});
 renderStudents();
-function filterStudents(){const q=$('#studentSearch').value.toLowerCase(), sec=$('#sectionFilter').value;renderStudents(students.filter(s=>(s.name.toLowerCase().includes(q)||s.lrn.includes(q))&&(sec==='All sections'||s.section.includes(sec))))}
-$('#studentSearch').oninput=filterStudents;$('#sectionFilter').onchange=filterStudents;
 $('#classGrid').innerHTML='<article class="panel empty-state">No classes configured yet</article>';
 $('#reportTable').innerHTML='<tr><td colspan="6"><div class="empty-state">No consolidated attendance data yet</div></td></tr>';
 $('#qrGrid').innerHTML='<div class="empty-state">No QR credentials issued yet</div>';
@@ -35,22 +114,22 @@ if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js').catc
 
 // Offline-first persistence and synchronization.
 function getDeviceId(){const key=`eduscan-device-id:${authenticatedUser?.id||'anonymous'}`;let id=localStorage.getItem(key);if(!id){id=crypto.randomUUID();localStorage.setItem(key,id)}return id}
-async function updateSyncStatus(){const count=await EduScanDB.countPending();const online=navigator.onLine;$('#syncButton').className=`sync-status ${online?'online':''}`;$('#syncLabel').textContent=online?(count?`${count} pending`:'All synced'):`Offline · ${count} pending`}
+async function updateSyncStatus(){const count=await EduScanDB.countPending();const online=navigator.onLine;$('#syncButton').className=`sync-status ${online?'online':''}`;$('#syncLabel').textContent=online?(count?`${count} pending`:'All synced'):`Offline · ${count} pending`;$('#teacherPendingStat').textContent=count;$('#overviewPendingCount').textContent=count;$('#overviewSyncState').textContent=online?(count?'Connect with the school server to submit pending records.':'This browser has no pending attendance records.'):'Offline. Records remain on this device until synchronization succeeds.'}
 async function synchronize(){const pending=await EduScanDB.getPending(),closures=await EduScanDB.getPendingSessionClosures(),attempts=await EduScanDB.getPendingVerificationAttempts();if(!pending.length&&!closures.length&&!attempts.length)return updateSyncStatus();$('#syncLabel').textContent=`Syncing ${pending.length+attempts.length} records…`;const apiBase=location.port==='8080'?'http://localhost:8000':'';try{const response=await fetch(`${apiBase}/api/v1/sync/attendance`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_id:getDeviceId(),records:pending.map(r=>({record_id:r.id,session_id:r.sessionId,student_lrn:r.studentLrn,status:r.status,scanned_at:r.scannedAt,credential:r.credential||null,offline_authorization:r.offlineAuthorization||null,offline_opened_at:r.offlineOpenedAt||null})),session_closures:closures.map(item=>({session_id:item.id,offline_authorization:item.authorization,offline_opened_at:item.openedAt})),verification_attempts:attempts.map(item=>({attempt_id:item.id,session_id:item.sessionId,student_lrn:item.studentLrn,credential:item.credential,action:item.action,reason:item.reason,occurred_at:item.occurredAt}))})});if(!response.ok)throw new Error('Server unavailable');const result=await response.json();await EduScanDB.markSynced([...result.accepted_record_ids,...result.duplicate_record_ids]);await EduScanDB.markConflicts(result.conflicts);await EduScanDB.markSessionsClosed(result.closed_session_ids||[]);await EduScanDB.markVerificationAttemptsSynced(result.accepted_attempt_ids||[]);toast(`${result.accepted_record_ids.length} attendance record${result.accepted_record_ids.length===1?'':'s'} synchronized${result.conflicts.length?` · ${result.conflicts.length} need review`:''}`)}catch{$('#syncButton').classList.add('error');toast('Records are safe on this device; the server is unavailable.')}finally{updateSyncStatus()}}
 
-$('#syncButton').onclick=synchronize;
+$('#syncButton').onclick=synchronize;$('#overviewSyncButton').onclick=synchronize;
 window.addEventListener('online',()=>{updateSyncStatus();synchronize()});
 window.addEventListener('offline',updateSyncStatus);
 EduScanDB.open().then(updateSyncStatus);
 
 // Role-specific workspaces. The API will enforce the same permissions server-side.
 const roleConfig={
-  teacher:{label:'Teacher',name:'Jamie Reyes',home:'teacherHome',views:['scanner','students','classes','reports','qr']},
-  administrator:{label:'IT Administrator',name:'Alex Mendoza',home:'overview',views:['scanner','students','classes','reports','qr']},
-  principal:{label:'Principal',name:'Dr. Elena Ramos',home:'principalHome',views:['reports']}
+  teacher:{label:'Teacher',home:'teacherHome',views:['scanner','students','classes','reports','qr']},
+  administrator:{label:'IT Administrator',home:'overview',views:['scanner','students','classes','reports','qr']},
+  principal:{label:'Principal',home:'principalHome',views:['reports']}
 };
 let currentRole='administrator';
-function applyRole(role){const config=roleConfig[role];if(!config)return;currentRole=role;$('#roleLabel').textContent=config.label;$('#userName').textContent=config.name;$$('.nav-item').forEach(item=>{item.hidden=item.dataset.view!=='overview'&&!config.views.includes(item.dataset.view)});const homeNav=$('.nav-item[data-view="overview"]');homeNav.innerHTML=`<span>⌂</span> ${role==='principal'?'Consolidation':role==='teacher'?'My day':'System overview'}`;homeNav.onclick=()=>showView(config.home);const takeButton=$('.top-actions [data-view-target="scanner"]');takeButton.hidden=role!=='teacher';showView(config.home)}
+function applyRole(role){const config=roleConfig[role];if(!config)return;currentRole=role;$('#roleLabel').textContent=config.label;$$('.nav-item').forEach(item=>{item.hidden=item.dataset.view!=='overview'&&!config.views.includes(item.dataset.view)});const homeNav=$('.nav-item[data-view="overview"]');homeNav.innerHTML=`<span class="nav-icon">${uiIcon('home')}</span><span>${role==='principal'?'Consolidation':role==='teacher'?'My day':'Overview'}</span>`;homeNav.setAttribute('aria-label',homeNav.textContent.trim());homeNav.dataset.tooltip=homeNav.textContent.trim();homeNav.onclick=()=>showView(config.home);const takeButton=$('.top-actions [data-view-target="scanner"]');takeButton.hidden=role!=='teacher';showView(config.home)}
 $$('[data-action="student-add"]').forEach(button=>button.onclick=openStudentDialog);
 
 // Student creation is server-authoritative and automatically issues a credential.
@@ -160,7 +239,7 @@ $('#studentForm').onsubmit=async event=>{
   const data=new FormData(form),file=data.get('photograph'),button=form.querySelector('[type="submit"]');
   $('#studentCreateError').textContent='';
   if(file?.size>2*1024*1024){$('#studentCreateError').textContent='Photograph must be 2 MB or smaller.';return}
-  const payload=Object.fromEntries(data);delete payload.photograph;button.disabled=true;button.textContent='Creating…';
+  const payload=Object.fromEntries(data);delete payload.photograph;const finish=beginAction(button,'Saving student…');if(!finish)return;
   try{
     const student=await createStudentRecord(payload);let photoError='';
     if(file?.size){try{await saveStudentPhotograph(student,file)}catch(error){photoError=' Photograph could not be saved; upload it through the student profile.'}}
@@ -169,7 +248,7 @@ $('#studentForm').onsubmit=async event=>{
     $('#downloadQrLink').href=student.qrUrl;$('#downloadQrLink').download=`${student.name.replaceAll(' ','-').toLowerCase()}-eduscan-qr.svg`;
     $('#copyQrLink').dataset.url=student.qrUrl;$('#qrIssuedDialog').showModal();toast('Student saved and QR credential issued'+photoError);
   }catch(error){$('#studentCreateError').textContent=error.message||'Connect to the EduScan server to create a student.'}
-  finally{button.disabled=false;button.textContent='Save student'}
+  finally{finish()}
 };
 
 function csvEscape(value){const text=String(value??'');return /[",\r\n]/.test(text)?`"${text.replaceAll('"','""')}"`:text}
@@ -186,18 +265,22 @@ $('#exportStudents').onclick=()=>{
 $('#importCsv').onclick=()=>$('#csvFile').click();
 $('#csvFile').onchange=async event=>{
   const file=event.target.files[0];event.target.value='';if(!file)return;
-  const rows=parseCsv(await file.text());if(!rows.length)return toast('The CSV file is empty.');
+  const button=$('#importCsv'),finish=beginAction(button,'Reading CSV…');if(!finish)return;
+  try{
+  const rows=parseCsv(await file.text());if(!rows.length)throw new Error('The CSV file is empty.');
   const headers=rows.shift().map(header=>header.trim().toLowerCase().replace(/^\uFEFF/,'')),required=['first_name','last_name','lrn','section','sex','date_of_birth','enrollment_date','academic_year'];
   if(required.some(header=>!headers.includes(header))){$('#csvResultsSummary').textContent='Use the updated CSV template. Required columns: '+required.join(', ');$('#csvResultsErrors').textContent='Dates must use YYYY-MM-DD. Sex accepts male/female or M/F. Enrollment type accepts regular/transferred_in.';$('#csvResultsDialog').showModal();return}
-  let imported=0;const errors=[];const button=$('#importCsv');button.disabled=true;
-  try{for(const [index,row] of rows.entries()){
+  let imported=0;const errors=[];
+  for(const [index,row] of rows.entries()){
+    button.textContent=`Importing ${index+1} of ${rows.length}…`;
     const record=Object.fromEntries(headers.map((header,column)=>[header,(row[column]||'').trim()]));
     if(required.some(header=>!record[header])){errors.push(`Row ${index+2}: missing a required value`);continue}
     if(!record.enrollment_type)record.enrollment_type='regular';
     try{await createStudentRecord(record);imported++}catch(error){errors.push(`Row ${index+2}: ${error.message}`)}
-  }}finally{button.disabled=false}
+  }
   renderStudents();renderQrLibrary();$('#csvResultsSummary').textContent=`${imported} student(s) imported; ${errors.length} row(s) skipped.`;
   $('#csvResultsErrors').textContent=errors.join('\n');$('#csvResultsDialog').showModal();
+  }catch(error){$('#csvResultsSummary').textContent='CSV import could not be completed.';$('#csvResultsErrors').textContent=error.message||'Could not read the selected file.';$('#csvResultsDialog').showModal()}finally{finish()}
 };
 
 $('#qrGrid').onchange=event=>{const checkbox=event.target.closest('.qr-select');if(!checkbox)return;checkbox.checked?selectedQrIds.add(checkbox.dataset.credentialId):selectedQrIds.delete(checkbox.dataset.credentialId);checkbox.closest('.qr-card').classList.toggle('selected',checkbox.checked);updateQrSelectionCount()};
@@ -206,8 +289,15 @@ $('#selectAllQr').onclick=()=>{if(selectedQrIds.size===students.filter(student=>
 let authenticatedUser=null, availableClasses=[], availableUsers=[], availableAcademicYears=[];
 async function apiRequest(path,options={}){return fetch(`${getApiBase()}${path}`,options)}
 function showLogin(message=''){document.body.classList.add('auth-pending');$('#loginError').textContent=message;if(!$('#loginDialog').open)$('#loginDialog').showModal()}
-async function activateAuthenticatedUser(user){authenticatedUser=user;EduScanDB.setActiveUser(user.id);applyRole(user.role);$('#userName').textContent=user.full_name;$('#roleLabel').textContent=roleConfig[user.role].label;$$('.admin-only').forEach(element=>element.hidden=user.role!=='administrator');document.body.classList.remove('auth-pending');if($('#loginDialog').open)$('#loginDialog').close();if(user.role==='teacher'){const deviceResponse=await apiRequest('/api/v1/devices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_uuid:getDeviceId(),label:navigator.userAgent.slice(0,120)})});if(!deviceResponse.ok)toast('This browser could not be registered for offline attendance. Ask IT to review the device.')}await loadAcademicYears();await loadClasses();if(user.role!=='principal')await loadStudents();else{students.splice(0);renderStudents();renderQrLibrary()}if(user.role==='administrator')await loadUsers();if(user.role!=='teacher')await loadAttentionItems()}
-async function loadAttentionItems(){const container=$('#attentionList');if(!container)return;const response=await apiRequest('/api/v1/audit-logs');if(!response.ok)return;const items=(await response.json()).filter(item=>item.action==='qr_verification.flagged').slice(0,8);container.className=items.length?'activity-list':'empty-state';container.innerHTML=items.length?items.map(item=>`<div class="activity-item"><span class="mini-icon coral">!</span><div><strong>Possible shared QR card</strong><small>${escapePrintText(item.details?.reason||'Teacher requested review')} · LRN ending ${escapePrintText(item.details?.student_lrn_suffix||'unknown')}</small></div><time>${new Date(item.created_at).toLocaleString()}</time></div>`).join(''):'No items need attention'}
+async function activateAuthenticatedUser(user){$('#studentSearch').value='';$('#studentStatusFilter').value='all';$('#sectionFilter').value='All sections';studentListState.page=1;currentReportSummary=null;reportRequestVersion++;authenticatedUser=user;EduScanDB.setActiveUser(user.id);applyRole(user.role);$('#userName').textContent=user.full_name;$('#userAvatar').textContent=user.full_name.split(' ').map(part=>part[0]).join('').slice(0,2).toUpperCase();$('#roleLabel').textContent=roleConfig[user.role].label;$$('.admin-only').forEach(element=>element.hidden=user.role!=='administrator');document.body.classList.remove('auth-pending');if($('#loginDialog').open)$('#loginDialog').close();if(user.role==='teacher'){const deviceResponse=await apiRequest('/api/v1/devices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_uuid:getDeviceId(),label:navigator.userAgent.slice(0,120)})});if(!deviceResponse.ok)toast('This browser could not be registered for offline attendance. Ask IT to review the device.')}await loadAcademicYears();await loadClasses();if(user.role!=='principal')await loadStudents();else{students.splice(0);renderStudents();renderQrLibrary()}if(user.role==='administrator')await loadUsers();if(user.role!=='teacher')await loadAttentionItems();$('#workspaceSummary').dataset.ready='true';refreshWorkspaceHeader();await loadReportSummary();await updateSyncStatus()}
+async function loadAttentionItems(){
+  const response=await apiRequest('/api/v1/audit-logs');if(!response.ok)return;const logs=await response.json();
+  const items=logs.filter(item=>item.action==='qr_verification.flagged').slice(0,8),container=$('#attentionList');
+  container.className=items.length?'activity-list':'empty-state';
+  container.innerHTML=items.length?items.map(item=>`<div class="activity-item"><span class="mini-icon coral">${uiIcon('alert')}</span><div><strong>Possible shared QR card</strong><small>${escapePrintText(item.details?.reason||'Teacher requested review')} · LRN ending ${escapePrintText(item.details?.student_lrn_suffix||'unknown')}</small></div></div>`).join(''):`<span class="empty-icon">${uiIcon('shield')}</span><strong>Nothing needs your attention</strong><small>Flagged QR scans will appear here for review.</small>`;
+  const labels={'student.create':'Student profile created','student.profile.update':'Student details updated','student.status.update':'Enrollment status updated','student.sex.update':'Student record updated','student.section.update':'Student section updated','attendance_session.open':'Attendance session opened','attendance_session.close':'Attendance session closed','qr_credential.replace':'QR card replaced','qr_credential.revoke':'QR card revoked','class.create':'Class created','class.update':'Class updated','academic_year.create':'School year created','academic_year.transition':'School year updated','auth.login':'Staff sign-in'};
+  $('#activityList').innerHTML=logs.length?logs.slice(0,5).map(item=>`<div class="activity-item"><span class="mini-icon green">${uiIcon(item.action.startsWith('student')?'users':item.action.startsWith('qr')?'qr':'clock')}</span><div><strong>${escapePrintText(labels[item.action]||item.action.replaceAll('_',' ').replaceAll('.',' · '))}</strong><small>${escapePrintText(item.entity_type?.replaceAll('_',' ')||'School record')}</small></div><time>${escapePrintText(new Date(item.created_at).toLocaleDateString('en-PH',{timeZone:'Asia/Manila',month:'short',day:'numeric'}))}</time></div>`).join(''):emptyState('clock','No activity yet','Your latest school updates will appear here.');
+}
 async function restoreAuthentication(){try{const response=await apiRequest('/api/v1/auth/me');if(!response.ok)throw new Error();await activateAuthenticatedUser(await response.json())}catch{showLogin()}}
 let assignmentRefreshBusy=false;
 async function refreshTeacherAssignments(){if(assignmentRefreshBusy||authenticatedUser?.role!=='teacher'||session||document.hidden)return;assignmentRefreshBusy=true;try{const response=await apiRequest('/api/v1/classes');if(!response.ok)return;const latest=await response.json(),signature=list=>list.map(item=>`${item.id}:${item.teacher_id||''}:${item.section}:${item.subject}:${item.weekday}:${item.start_time}:${item.end_time}`).sort().join('|');if(signature(latest)!==signature(availableClasses)){await loadClasses();await loadStudents();toast('Your class assignments and rosters were updated by IT.')}}finally{assignmentRefreshBusy=false}}
@@ -238,10 +328,15 @@ function refreshSectionOptions(){
 }
 
 const loadAcademicYearsOnline=loadAcademicYears;
-loadAcademicYears=async function(){await loadAcademicYearsOnline();const filter=$('#reports .panel-head select'),selected=filter.value;filter.innerHTML='<option value="">All school years</option>'+availableAcademicYears.map(year=>`<option value="${year.name}">${year.name}</option>`).join('');if(availableAcademicYears.some(year=>year.name===selected))filter.value=selected};
+loadAcademicYears=async function(){
+  await loadAcademicYearsOnline();const filter=$('#reports .panel-head select'),selected=filter.value,initialized=filter.dataset.initialized;
+  filter.innerHTML='<option value="">All school years</option>'+availableAcademicYears.map(year=>`<option value="${escapePrintText(year.name)}">${escapePrintText(year.name)}</option>`).join('');
+  filter.value=availableAcademicYears.some(year=>year.name===selected)?selected:initialized?'':availableAcademicYears.find(year=>year.state==='active')?.name||'';
+  filter.dataset.initialized='true';refreshWorkspaceHeader();
+};
 
 const loadClassesOnline=loadClasses;
-loadClasses=async function(){await loadClassesOnline();refreshSectionOptions();if(authenticatedUser?.role==='teacher'){for(const classItem of availableClasses){try{const response=await apiRequest(`/api/v1/classes/${classItem.id}/offline-package?device_id=${encodeURIComponent(getDeviceId())}`);if(response.ok){const packageRecord=await response.json();await EduScanDB.saveClassPackage({classId:classItem.id,...packageRecord,downloadedAt:new Date().toISOString()})}}catch{}}if(availableClasses.length)toast(`${availableClasses.length} class roster${availableClasses.length===1?'':'s'} ready offline`)}};
+loadClasses=async function(){await loadClassesOnline();refreshSectionOptions();refreshWorkspaceHeader();if(authenticatedUser?.role==='teacher'){for(const classItem of availableClasses){try{const response=await apiRequest(`/api/v1/classes/${classItem.id}/offline-package?device_id=${encodeURIComponent(getDeviceId())}`);if(response.ok){const packageRecord=await response.json();await EduScanDB.saveClassPackage({classId:classItem.id,...packageRecord,downloadedAt:new Date().toISOString()})}}catch{}}if(availableClasses.length)toast(`${availableClasses.length} class roster${availableClasses.length===1?'':'s'} ready offline`)}};
 
 function canonicalJson(value){if(Array.isArray(value))return`[${value.map(canonicalJson).join(',')}]`;if(value&&typeof value==='object')return`{${Object.keys(value).sort().map(key=>`${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`;return JSON.stringify(value)}
 function decodeBase64Url(value){const normalized=value.replaceAll('-','+').replaceAll('_','/').padEnd(Math.ceil(value.length/4)*4,'=');return Uint8Array.from(atob(normalized),character=>character.charCodeAt(0))}
@@ -283,8 +378,30 @@ $('#studentStatusButton').onclick=async()=>{
 };
 $('#qrActionForm').onsubmit=async event=>{event.preventDefault();if(!profileStudent)return;const form=event.target,data=Object.fromEntries(new FormData(form)),action=data.action;const response=await apiRequest(`/api/v1/students/${profileStudent.id}/qr-credential/${action}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reason:data.reason})});const result=await response.json();if(!response.ok)return toast(result.detail||'QR action failed');$('#qrActionDialog').close();if(action==='replace'){Object.assign(profileStudent,studentFromApi(result));renderStudents();renderQrLibrary();toast('Old QR revoked and replacement issued')}else{profileStudent.qr='Revoked · '+data.reason;profileStudent.qrUrl=null;profileStudent.credentialId=null;renderStudents();renderQrLibrary();toast('QR credential revoked · the physical card no longer works')}};
 $('#profileDownloadQr').onclick=()=>{if(!profileStudent?.qrUrl)return toast('This student has no active QR to download.');const link=document.createElement('a');link.href=profileStudent.qrUrl;link.download=`${profileStudent.name.replaceAll(' ','-').toLowerCase()}-eduscan-qr.svg`;link.click()};
-let currentReportSummary=null;async function loadReportSummary(){const filter=$('#reports .panel-head select'),year=filter?.value||'',query=year?`?academic_year=${encodeURIComponent(year)}`:'';const response=await apiRequest(`/api/v1/reports/attendance-summary${query}`);if(!response.ok)return;const report=await response.json();currentReportSummary=report;$('#presentStat').textContent=report.counts.present;$('#lateStat').textContent=report.counts.late;const absentCard=[...$$('.stat-card span')].find(element=>element.textContent.trim()==='Absent')?.parentElement?.querySelector('strong');if(absentCard)absentCard.textContent=report.counts.absent;const banner=$('#reports .report-banner');banner.querySelector('strong').textContent=`${report.attendance_rate}%`;banner.querySelector('small').textContent=`Based on ${report.total} attendance record${report.total===1?'':'s'}`;$('#reportTable').innerHTML=report.sections.length?report.sections.map(row=>`<tr><td>${escapePrintText(row.section)}</td><td>${escapePrintText(row.adviser)}</td><td>${row.present}</td><td>${row.late}</td><td>${row.absent}</td><td>${row.attendance_rate}%</td></tr>`).join(''):'<tr><td colspan="6"><div class="empty-state">No attendance data for this school year</div></td></tr>'}
-$('#downloadReport').onclick=async()=>{if(!currentReportSummary)await loadReportSummary();if(!currentReportSummary)return toast('Report data is unavailable.');const rows=['section,adviser,present,late,absent,excused,total,attendance_rate',...currentReportSummary.sections.map(row=>[row.section,row.adviser,row.present,row.late,row.absent,row.excused,row.total,row.attendance_rate].map(csvEscape).join(','))];download(`eduscan-attendance-${new Date().toISOString().slice(0,10)}.csv`,rows.join('\r\n'))};
+let currentReportSummary=null,reportRequestVersion=0;
+async function loadReportSummary(){
+  const filter=$('#reports .panel-head select'),year=filter?.value||'',query=year?`?academic_year=${encodeURIComponent(year)}`:'',version=++reportRequestVersion;
+  let response;try{response=await apiRequest(`/api/v1/reports/attendance-summary${query}`)}catch{return}
+  if(!response.ok)return;const report=await response.json();if(version!==reportRequestVersion||!report?.counts||!Array.isArray(report.sections))return;
+  currentReportSummary=report;$('#teacherPresentStat').textContent=report.counts.present;$('#presentStat').textContent=report.counts.present;$('#lateStat').textContent=report.counts.late;$('#absentStat').textContent=report.counts.absent;
+  const banner=$('#reports .report-banner');banner.querySelector('strong').textContent=`${report.attendance_rate}%`;banner.querySelector('small').textContent=`Based on ${report.total} attendance record${report.total===1?'':'s'}`;
+  $('#reports .panel-head p').textContent=year?`School year ${year}`:'All school years';
+  $('#reportTable').innerHTML=report.sections.length?report.sections.map(row=>`<tr><td><strong>${escapePrintText(row.section)}</strong></td><td>${escapePrintText(row.adviser)}</td><td>${row.present}</td><td>${row.late}</td><td>${row.absent}</td><td><span class="status present">${row.attendance_rate}%</span></td></tr>`).join(''):`<tr><td colspan="6">${emptyState('report','No attendance records yet','Synchronized attendance will appear here for the selected school year.')}</td></tr>`;
+  const principalBanner=$('#principalHome .report-banner');principalBanner.querySelector('strong').textContent=`${report.attendance_rate}%`;principalBanner.querySelector('small').textContent=`${report.total} synchronized attendance record${report.total===1?'':'s'}`;
+  const principalStats=$$('#principalHome .stat-card strong');['present','late','absent'].forEach((key,index)=>principalStats[index].textContent=report.counts[key]);
+  $('#principalHome .panel .panel-head p').textContent=year?`School year ${year}`:'All school years';
+  $('#principalHome .panel .empty-state').innerHTML=report.total?`<strong>${report.total} attendance marks received</strong><small>${report.sections.length} section${report.sections.length===1?'':'s'} included. Open full reports to review the figures.</small>`:'<strong>No consolidated attendance yet</strong><small>Records will appear after teachers synchronize their sessions.</small>';
+  $('#overviewPeriod').textContent=year||'All school years';
+  $('#attendanceChart').innerHTML=report.total?`<div class="attendance-breakdown">${[['present','Present'],['late','Late'],['absent','Absent'],['excused','Excused']].map(([key,label])=>`<div class="attendance-line"><span><i class="${key}"></i>${label}</span><div class="track"><i class="${key}" style="width:${Math.min(100,Number(report.counts[key]||0)/report.total*100)}%"></i></div><strong>${report.counts[key]||0}</strong></div>`).join('')}<p class="summary-footnote">${report.total} recorded attendance marks · ${report.attendance_rate}% attendance rate</p></div>`:emptyState('report','Attendance starts with your first session','Recorded attendance will appear after teachers synchronize their sessions.');
+}
+function refreshWorkspaceHeader(){
+  $('#overviewDate').textContent=new Intl.DateTimeFormat('en-PH',{timeZone:'Asia/Manila',weekday:'long',month:'long',day:'numeric',year:'numeric'}).format(new Date());
+  const active=availableAcademicYears.find(year=>year.state==='active');$('#sidebarSchoolYear').textContent=active?.name||'No active school year';
+  $('#classStat').textContent=availableClasses.length;$('#teacherClassStat').textContent=availableClasses.length;$('#teacherStudentStat').textContent=students.length;
+  $('#teacherClassList').innerHTML=availableClasses.length?availableClasses.slice(0,3).map(item=>`<div class="attention-row"><span class="mini-icon green">${uiIcon('class')}</span><span><strong>${escapePrintText(item.subject)} · ${escapePrintText(item.section)}</strong><small>${escapePrintText(item.schedule_label)}</small></span></div>`).join(''):emptyState('class','No classes assigned yet','Ask your school administrator to assign your teaching schedule.');
+  if($('#workspaceSummary').dataset.ready)$('#workspaceSummary').textContent=`${students.length} student profile${students.length===1?'':'s'} · ${availableClasses.length} configured class${availableClasses.length===1?'':'es'} · Your school records, organized.`;
+}
+$('#downloadReport').onclick=async()=>{const finish=beginAction($('#downloadReport'),'Preparing CSV…');if(!finish)return;$('#reportActionError').textContent='';try{if(!currentReportSummary)await loadReportSummary();if(!currentReportSummary)throw new Error('Report data is unavailable. Please try again.');const rows=['section,adviser,present,late,absent,excused,total,attendance_rate',...currentReportSummary.sections.map(row=>[row.section,row.adviser,row.present,row.late,row.absent,row.excused,row.total,row.attendance_rate].map(csvEscape).join(','))];download(`eduscan-attendance-${new Date().toISOString().slice(0,10)}.csv`,rows.join('\r\n'));toast('Attendance CSV download started')}catch(error){$('#reportActionError').textContent=error.message||'Report could not be downloaded.'}finally{finish()}};
 $('#reports .panel-head select').onchange=loadReportSummary;
 const reportsNavigation=$('.nav-item[data-view="reports"]');reportsNavigation.onclick=async()=>{await loadReportSummary();showView('reports')};
 $('#settingsButton').onclick=()=>$('#settingsDialog').showModal();
@@ -331,7 +448,7 @@ $('#sf4Settings').onchange=event=>{
 };
 $('#loadSf4').onclick=async()=>{
   if(![...$('#sf4Settings').querySelectorAll('input,select')].every(input=>input.reportValidity()))return;
-  const form=$('#sf4Form'),button=$('#loadSf4'),context=sf4Context();button.disabled=true;$('#sf4Error').textContent='';
+  const form=$('#sf4Form'),button=$('#loadSf4'),context=sf4Context(),finish=beginAction(button,'Loading figures…');if(!finish)return;$('#sf4Error').textContent='';
   try{
     const response=await apiRequest(`/api/v1/reports/sf4?${new URLSearchParams({academic_year:form.elements.academic_year.value,month:form.elements.month.value})}`),result=await response.json();
     if(!response.ok)throw new Error(sf4Error(result.detail));
@@ -340,7 +457,7 @@ $('#loadSf4').onclick=async()=>{
     const grades=form.elements.school_level.value==='elementary'?['K','1','2','3','4','5','6','NG']:['7','8','9','10','11','12','NG'];
     $('#sf4Rows').innerHTML=result.rows.map((row,index)=>`<section class="sf4-section" data-section="${escapePrintText(row.section)}"><h3>${escapePrintText(row.section)}</h3><p class="sf4-note">${row.recorded_days} day(s) have closed attendance records for this month.</p>${row.missing_sex?`<p class="sf4-warning">${row.missing_sex} enrolled learner(s) have no sex recorded. Update their student profiles and reload, or enter verified SF2 male/female figures below.</p>`:''}<div class="form-grid"><label>Advisory teacher<input data-field="adviser" value="${escapePrintText(row.adviser)}" maxlength="160" required></label><label>Grade/year level<select data-field="grade" required><option value="">Choose grade</option>${grades.map(grade=>`<option value="${grade}" ${grade===row.grade?'selected':''}>${grade==='K'?'Kinder':grade==='NG'?'Non-graded':`Grade ${grade}`}</option>`).join('')}</select></label></div><div class="sf4-pairs">${sf4Fields.map(([key,label])=>`<fieldset class="sf4-pair"><legend>${label}</legend>${['male','female'].map(sex=>`<label>${sex==='male'?'M':'F'}<input type="number" min="0" max="100000" step="1" data-field="${key}" data-sex="${sex}" aria-label="${escapePrintText(row.section)} ${label} ${sex}" value="${row[key]?.[sex]??''}" required></label>`).join('')}</fieldset>`).join('')}</div><p class="sf4-preview" aria-live="polite"></p></section>`).join('');
     sf4LoadedContext=context;$('#downloadSf4').disabled=false;updateSf4Previews();
-  }catch(error){$('#sf4Error').textContent=error.message||'Connect to the server to load SF4 figures.'}finally{button.disabled=false}
+  }catch(error){$('#sf4Error').textContent=error.message||'Connect to the server to load SF4 figures.'}finally{finish()}
 };
 function updateSf4Previews(){
   const days=Number($('#sf4Form').elements.school_days.value);
@@ -365,12 +482,12 @@ $('#sf4Form').onsubmit=async event=>{
     for(const [key] of sf4Fields)row[key]=Object.fromEntries(['male','female'].map(sex=>[sex,Number(section.querySelector(`[data-field="${key}"][data-sex="${sex}"]`).value)]));
     return row;
   });
-  button.disabled=true;button.textContent='Generating…';
+  const finish=beginAction(button,'Generating SF4…');if(!finish)return;
   try{
     const response=await apiRequest('/api/v1/reports/sf4',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     if(!response.ok){const result=await response.json();throw new Error(sf4Error(result.detail))}
     download(`eduscan-sf4-${payload.month}.xlsx`,await response.blob(),'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');toast('SF4 Excel report downloaded');
-  }catch(error){$('#sf4Error').textContent=error.message||'Connect to the server to download the report.'}finally{button.disabled=false;button.textContent='Download complete SF4 (.xlsx)'}
+  }catch(error){$('#sf4Error').textContent=error.message||'Connect to the server to download the report.'}finally{finish()}
 };
 
 
@@ -408,20 +525,24 @@ $('#editStudentProfile').onclick=()=>{
   setStudentDateLimits(form);$('#studentEditError').textContent='';$('#studentEditDialog').showModal();
 };
 $('#studentEditForm').onsubmit=async event=>{
-  event.preventDefault();if(!profileStudent)return;const form=event.target,button=form.querySelector('[type="submit"]');button.disabled=true;$('#studentEditError').textContent='';
+  event.preventDefault();if(!profileStudent)return;const form=event.target;if(!form.reportValidity())return;const button=form.querySelector('[type="submit"]'),finish=beginAction(button,'Saving details…');if(!finish)return;$('#studentEditError').textContent='';
   try{
     const response=await apiRequest(`/api/v1/students/${profileStudent.id}/profile`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.fromEntries(new FormData(form)))}),result=await response.json();
     if(!response.ok)throw new Error(sf4Error(result.detail));
     Object.assign(profileStudent.profileDetails,result);Object.assign(profileStudent,{name:result.full_name,firstName:result.first_name,lastName:result.last_name,sex:result.sex,initials:result.full_name.split(' ').map(part=>part[0]).join('').slice(0,2)});
     $('#profileStudentName').textContent=profileStudent.name;$('#profileSex').value=profileStudent.sex;renderStudentDetails();renderStudents();renderQrLibrary();loadStudentMovementHistory();$('#studentEditDialog').close();toast('Student details saved');
-  }catch(error){$('#studentEditError').textContent=error.message||'Could not save the student profile.'}finally{button.disabled=false}
+  }catch(error){$('#studentEditError').textContent=error.message||'Could not save the student profile.'}finally{finish()}
 };
 $('#studentStatusForm').onsubmit=async event=>{
-  event.preventDefault();if(!profileStudent)return;const form=event.target,button=form.querySelector('[type="submit"]');button.disabled=true;$('#studentStatusError').textContent='';
+  event.preventDefault();if(!profileStudent)return;const form=event.target;if(!form.reportValidity())return;const button=form.querySelector('[type="submit"]'),finish=beginAction(button,'Saving status…');if(!finish)return;$('#studentStatusError').textContent='';
   try{
     const data=Object.fromEntries(new FormData(form));data.is_active=!profileStudent.isActive;if(data.is_active)data.reason=null;
     const response=await apiRequest(`/api/v1/students/${profileStudent.id}/status`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}),result=await response.json();
     if(!response.ok)throw new Error(sf4Error(result.detail));
     $('#studentStatusDialog').close();$('#studentProfileDialog').close();await loadStudents();toast(result.is_active?'Student reactivated. Issue a replacement QR card.':'Student made inactive; the movement date and reason were saved.');
-  }catch(error){$('#studentStatusError').textContent=error.message||'Could not update the student status.'}finally{button.disabled=false}
+  }catch(error){$('#studentStatusError').textContent=error.message||'Could not update the student status.'}finally{finish()}
 };
+
+// Keep the request's form visible until its result is known.
+document.addEventListener('click',event=>{const close=event.target.closest('[data-close-dialog],[data-close-student]');if(close&&busyActions.has(close.closest('form'))){event.preventDefault();event.stopImmediatePropagation()}},true);
+$$('dialog').forEach(dialog=>dialog.addEventListener('cancel',event=>{if([...dialog.querySelectorAll('form')].some(form=>busyActions.has(form)))event.preventDefault()}));
